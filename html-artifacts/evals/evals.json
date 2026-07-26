@@ -1,0 +1,33 @@
+{
+  "skill_name": "html-artifacts",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Build an interactive SaaS dashboard mock page to monitor server metrics and background tasks. The user should be able to trigger detailed node logs, view alerts, and toggle settings.",
+      "expected_output": "A fully functional, single-file HTML dashboard with a modern dark theme, animated modal details using native <dialog>, anchored overlay menus using the Popover API and Anchor Positioning, and smooth display transitions.",
+      "files": [],
+      "expectations": [
+        "The HTML file is created in the correct outputs directory.",
+        "The output uses the CSS Anchor Positioning API for overlay positioning (e.g., contains 'position-anchor' or 'anchor-name').",
+        "The output implements top-layer entry animations via CSS '@starting-style'.",
+        "The output implements top-layer exit transitions via CSS 'transition-behavior: allow-discrete' or 'allow-discrete'.",
+        "The output uses the native HTML Popover API (e.g., contains 'popover' attribute).",
+        "The output uses the native <dialog> element for modal dialog boxes.",
+        "The output does not import heavy frameworks or bundlers (no React, Vue, Tailwind CSS scripts/stylesheets)."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Create a premium signup and checkout flow prototype for a developer platform, including multi-step forms and plan details.",
+      "expected_output": "A sleek, multi-step checkout experience featuring native details accordions for plan details, popover tooltips for CVV info, and starting-style animations on active steps.",
+      "files": [],
+      "expectations": [
+        "The HTML file is created in the correct outputs directory.",
+        "The output uses native exclusive accordions via the <details name='...'> attribute.",
+        "The output implements CSS @starting-style entry transitions.",
+        "The output implements CSS 'allow-discrete' exit transitions for display state shifts.",
+        "The output does not import heavy frameworks or bundlers (no React, Vue, Tailwind CSS scripts/stylesheets)."
+      ]
+    }
+  ]
+}

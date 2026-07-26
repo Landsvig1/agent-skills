@@ -1,0 +1,17 @@
+{
+  "skill_name": "github-backend",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Build a Next.js waitlist form that saves the user's email to a GitHub repository under `data/waitlist.json`.",
+      "expected_output": "A Server Action using Octokit to read the existing waitlist.json, append the email, and update the file with the correct SHA.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Set up Keystatic for my Next.js portfolio to manage my projects. I want a `projects` collection that saves markdown files to `content/projects` in my github repo.",
+      "expected_output": "A keystatic.config.ts file configured with github storage and a projects collection, plus the necessary API route and Keystatic page.",
+      "files": []
+    }
+  ]
+}

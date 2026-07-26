@@ -1,0 +1,30 @@
+# Environment & Secrets
+.env
+.env.*
+*.env
+credentials/
+credentials.json
+token.json
+client_secret.json
+*.key
+*.pem
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Python & Node virtual environments / dependencies
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+node_modules/
+
+# Logs & temp files
+*.log
+tmp/
+.tmp/
+
+# Workspace build / eval artifacts from skill-creator
+*-workspace/

@@ -1,0 +1,43 @@
+{
+  "skill_name": "research",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I need a quick competitor analysis for the top 3 AI translation startups (specifically targeting real-time voice translation). Tell me what their names are, their websites, and how their pricing structure works.",
+      "expected_output": "A markdown report identifying three real-time voice translation startups, including their names, URLs, and pricing structure.",
+      "files": [],
+      "expectations": [
+        "The output is a markdown file with an Executive Summary and Detailed Findings",
+        "The report identifies exactly three distinct real-time voice translation startups",
+        "Each identified startup has a website URL listed",
+        "The report describes the pricing structure for each of the three startups",
+        "Every competitor fact or claim is backed by a clickable source citation link"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Can you find the most recent research papers (2025/2026) discussing 'LLM agent architectures for code generation'? I want to understand what the state-of-the-art frameworks are, specifically any that utilize multi-agent validation, and their key performance benefits.",
+      "expected_output": "A markdown report summarizing recent papers on multi-agent code generation architectures with citations and performance benefits.",
+      "files": [],
+      "expectations": [
+        "The output is a markdown report with an Executive Summary, Detailed Findings, and Sources Consulted",
+        "The report summarizes at least two frameworks or research papers from 2025 or 2026",
+        "The report specifically addresses multi-agent validation architectures",
+        "Key performance benefits of the frameworks are explicitly outlined",
+        "Each summarized paper or framework has a clickable source citation link"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Search for the latest news on OpenAI's advanced model developments from the last 30 days. Give me a summary of what has been announced or rumored, with specific dates and source links.",
+      "expected_output": "A markdown report outlining recent news on OpenAI's advanced models within the last 30 days, citing sources and dates.",
+      "files": [],
+      "expectations": [
+        "The output is a markdown report with an Executive Summary and Detailed Findings",
+        "The report covers news or rumors specifically from the last 30 days",
+        "Specific dates of announcements or rumors are explicitly mentioned",
+        "Clickable markdown links are provided for the cited news sources"
+      ]
+    }
+  ]
+}
