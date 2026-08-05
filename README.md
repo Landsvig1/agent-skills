@@ -1,49 +1,83 @@
-# Agent Skills
+# Agent Skills Repository
 
-Collection of agent skills for AI assistants (Claude Code, Antigravity/AGY, Gemini).
+> Production-ready agent skills for AI coding assistants (**Claude Code**, **Antigravity / AGY**, **Gemini CLI**).  
+> Maintained by [Kasper Landsvig / aiauto.dk](https://aiauto.dk).
 
-## Skills Directory
+---
 
-- **`add-vibe`**: Add entries to vibetrends.dk from URL or GitHub repo
-- **`bogholder`**: Manage accounting app (regnskab) & Danish bookkeeping compliance
-- **`bot-pr-review`**: Triage and review automated bot PRs
-- **`cold-email`**: B2B cold email copy & outreach sequences
-- **`copywriting`**: Conversion marketing copy for landing pages & websites
-- **`debug`**: Systematic debugging process
-- **`deep-research-agent`**: Deep research agent decomposition & synthesis
-- **`exa-*`**: Exa semantic search skills (code, company, financials, lead gen, people, personal sites, papers, web, X)
-- **`excalidraw`**: Generate valid Excalidraw JSON diagrams
-- **`firecrawl-*`**: Web scraping, crawling, market research, and web search
-- **`firesearch`**: AI-powered deep research with query decomposition
-- **`framer-motion`**: Framer Motion animation patterns for React/Next.js
-- **`gdpr-privacy-terms`**: Audit and implement GDPR compliance & legal pages
-- **`github-backend`**: Git-as-a-database CMS architecture for Next.js
-- **`grilling`**: Interactive stress-testing of plans and designs
-- **`gsc-admin`**: Google Search Console admin automation
-- **`hermes-ops`**: Hermes agent operations & revenue pipeline management
-- **`html-artifacts`**: Interactive standalone HTML/CSS/JS UI prototypes
-- **`invoke-claude-subscription`**: Shell out to Claude Code subscription session
-- **`knowledge-distiller`**: High-density knowledge extraction from raw content
-- **`nano-banana-build`**: Image generation & editing via Gemini Flash/Pro Image
-- **`ponytail` / `ponytail-review`**: Minimalist engineering & complexity review
-- **`pricing`**: Packaging, pricing tiers, and monetization strategy
-- **`projects-admin`**: Read-only health check across live projects
-- **`research`**: Structured research project & market analysis
-- **`revenue-chat-triage`**: Conversational triage of revenue opportunities
-- **`seo-nextjs`**: Technical SEO audit & implementation for Next.js
-- **`shadcn-ui`**: Design system & component integration guidelines
-- **`simply-launch`**: Deployment runbook for Simply.com + Vercel
-- **`skill-creator` / `skill-creator-admin`**: Create, test, and manage agent skills
-- **`tdd`**: Test-driven development workflow
-- **`vibe-*`**: Design system extraction, synthesis, and multimodal UI vision
-- **`vibetrends-admin`**: Management guide for vibetrends.dk
-- **`web-analytics`**: Privacy-compliant analytics implementation
-- **`web-design-guidelines`**: UX/UI design guidelines review
-- **`web-performance`**: Core Web Vitals & performance optimization
-- **`web-security`**: Next.js security hardening & security headers
-- **`wrap`**: Session wrap-up report & task verification
-- **`youtube-analyst` / `youtube-transcriber`**: YouTube video metrics & transcripts
+## Overview
 
-## Setup & Sync
+This repository contains modular **Agent Skills** that extend AI capabilities with domain-specific workflows, API integrations, automated execution scripts, and strict operational guidelines.
 
-This repository lives at `~/.claude/skills` (linked from `Skills Global` in Claude Cowork).
+Every skill directory includes:
+- `SKILL.md` — Core instruction set and frontmatter metadata for LLM agents.
+- `README.md` — Human-readable documentation, usage guidelines, and requirements.
+- `scripts/` — Automated execution scripts (Python / Node.js / Shell) where applicable.
+
+---
+
+## Featured Custom Skills (Built by Kasper Landsvig)
+
+These custom skills power day-to-day operations, automation pipelines, and core projects:
+
+| Skill | Description | Category |
+| :--- | :--- | :--- |
+| [`add-vibe`](add-vibe/README.md) | Curate and insert vibes, skills, and agents into VibeTrends.dk via API | Automation & Web |
+| [`bogholder`](bogholder/README.md) | Danish bookkeeping compliance, Dinero, moms, and accounting rules | Business & Finance |
+| [`bot-pr-review`](bot-pr-review/README.md) | Triage and review automated bot pull requests across GitHub repositories | Engineering & CI |
+| [`dk-techblog`](dk-techblog/README.md) | Scrape and synthesize Danish tech blog articles into Markdown digests | Research & Content |
+| [`fiske-dashboard`](fiske-dashboard/README.md) | Monitor and update fishery project compliance & dashboard data | Domain Operations |
+| [`gsc-admin`](gsc-admin/README.md) | Google Search Console API automation (sitemaps, indexing, analytics) | SEO & Growth |
+| [`hermes-ops`](hermes-ops/README.md) | Operate and optimize the Hermes autonomous agent & revenue pipeline | Agent Systems |
+| [`invoke-claude-subscription`](invoke-claude-subscription/README.md) | Shell out to local Claude Code CLI session for high-stakes reasoning/code | Infrastructure |
+| [`knowledge-distiller`](knowledge-distiller/README.md) | Extract high-density Knowledge-Action-Insight (KAI) schemas from raw content | AI & RAG |
+| [`projects-admin`](projects-admin/README.md) | Read-only diagnostic health checks across live web portfolio projects | Operations |
+| [`Research2Podcast`](Research2Podcast/README.md) | Synthesize research queries into NotebookLM two-host podcast audio scripts | AI & Audio |
+| [`revenue-chat-triage`](revenue-chat-triage/README.md) | Conversational triage and status updates for revenue opportunity board | Sales & Ops |
+| [`simply-launch`](simply-launch/README.md) | 10-minute zero-to-live deployment runbook (Simply.com + Vercel + Turso) | Deployment |
+| [`skill-creator-admin`](skill-creator-admin/README.md) | Cross-agent skill system audit, symlink check, and synchronization | Meta / Admin |
+| [`vibetrends-admin`](vibetrends-admin/README.md) | Administration & content management guide for VibeTrends.dk | Product Admin |
+| [`wrap`](wrap/README.md) | Session wrap-up audit, task verification, and concise status reporting | Workflow |
+| [`youtube-researcher-notebooklm`](youtube-researcher-notebooklm/README.md) | Generate multi-format research kits from YouTube videos | Content & Research |
+
+---
+
+## Standard & Utility Skills
+
+- **Exa Search Suite**: [`exa-code-context`](exa-code-context/README.md), [`exa-company-research`](exa-company-research/README.md), [`exa-financial-report-search`](exa-financial-report-search/README.md), [`exa-lead-generation`](exa-lead-generation/README.md), [`exa-people-research`](exa-people-research/README.md), [`exa-personal-site-search`](exa-personal-site-search/README.md), [`exa-research-paper-search`](exa-research-paper-search/README.md), [`exa-web-search`](exa-web-search/README.md), [`exa-x-search`](exa-x-search/README.md).
+- **Firecrawl Suite**: [`firecrawl`](firecrawl/README.md), [`firecrawl-crawl`](firecrawl-crawl/README.md), [`firecrawl-market-research`](firecrawl-market-research/README.md), [`firecrawl-scrape`](firecrawl-scrape/README.md), [`firecrawl-search`](firecrawl-search/README.md), [`firesearch`](firesearch/README.md).
+- **Engineering & Architecture**: [`debug`](debug/README.md), [`excalidraw`](excalidraw/README.md), [`framer-motion`](framer-motion/README.md), [`github-backend`](github-backend/README.md), [`html-artifacts`](html-artifacts/README.md), [`ponytail`](ponytail/README.md), [`ponytail-review`](ponytail-review/README.md), [`shadcn-ui`](shadcn-ui/README.md), [`tdd`](tdd/README.md), [`vibe-extractor`](vibe-extractor/README.md), [`vibe-synthesis`](vibe-synthesis/README.md), [`vibe-vision`](vibe-vision/README.md), [`web-analytics`](web-analytics/README.md), [`web-design-guidelines`](web-design-guidelines/README.md), [`web-performance`](web-performance/README.md), [`web-security`](web-security/README.md).
+- **Strategy & Strategy**: [`cold-email`](cold-email/README.md), [`copywriting`](copywriting/README.md), [`deep-research-agent`](deep-research-agent/README.md), [`gdpr-privacy-terms`](gdpr-privacy-terms/README.md), [`grill-me`](grill-me/README.md), [`grilling`](grilling/README.md), [`nano-banana-build`](nano-banana-build/README.md), [`pricing`](pricing/README.md), [`research`](research/README.md), [`seo-nextjs`](seo-nextjs/README.md), [`skill-creator`](skill-creator/README.md), [`youtube-analyst`](youtube-analyst/README.md), [`youtube-transcriber`](youtube-transcriber/README.md).
+
+---
+
+## Security & Secrets Policy
+
+> [!IMPORTANT]
+> This repository contains **NO API keys, passwords, bearer tokens, OAuth client secrets, or private credentials**.
+
+- Environment variables are loaded dynamically from `.env` or system environment.
+- Refer to `.env.example` to see required variables for specific skills.
+- Strict `.gitignore` rules prevent accidental commits of local `.env` files, OAuth tokens, or venv environments.
+
+---
+
+## Setup & Synchronization
+
+### 1. Copy Environment Configuration
+```bash
+cp .env.example .env
+# Edit .env and supply your required API keys (e.g. EXA_API_KEY, FIRECRAWL_API_KEY)
+```
+
+### 2. Cross-Agent Sync
+This repository serves as the central skills source. Automated cron jobs or slash commands (`/skill-creator-admin`) sync skills across:
+- **Claude Code**: `~/.claude/skills/`
+- **Gemini CLI / Antigravity**: `~/.gemini/skills/`
+
+---
+
+## License
+
+Internal Custom Skills © [Kasper Landsvig / aiauto.dk](https://aiauto.dk). All rights reserved.  
+Open-source utility components licensed under MIT where noted.

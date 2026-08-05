@@ -3,9 +3,13 @@
 .env.*
 *.env
 credentials/
+**/credentials/
 credentials.json
+**/credentials.json
 token.json
+**/token.json
 client_secret.json
+**/client_secret.json
 *.key
 *.pem
 
@@ -15,11 +19,16 @@ Thumbs.db
 
 # Python & Node virtual environments / dependencies
 venv/
+**/venv/
 .venv/
+**/.venv/
 env/
+**/env/
 __pycache__/
+**/__pycache__/
 *.pyc
 node_modules/
+**/node_modules/
 
 # Logs & temp files
 *.log

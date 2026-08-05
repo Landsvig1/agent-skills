@@ -4,7 +4,12 @@
 // a repo contains multiple skills (see add-vibe/SKILL.md, KTD6/KTD7 in
 // docs/plans/2026-07-01-001-feat-add-vibe-skills-catalog-plan.md).
 // Run from project root: node --env-file=.env.local ~/.claude/skills/add-vibe/scripts/add-skill.mjs \
-//   --title <title> --category <topic-slug> --desc <description> --tags "tag1,tag2" --githubUrl <url>
+//   --title <title> --category <topic-slug> --desc <description> --tags "tag1,tag2" --githubUrl <url> [--source <repo-root-url>]
+//
+// --githubUrl must point at the directory the skill actually lives in for a
+// multi-skill repo (.../tree/<branch>/<dir>) — the /skills detail page resolves
+// its doc from this URL and does NOT fall back to the repo root (see
+// src/lib/githubDocSource.ts). --source is the plain repo root for attribution.
 
 import { getBotAccessToken, getApiBaseUrl } from './bot-auth.mjs';
 
@@ -20,9 +25,12 @@ const category   = get('--category');
 const desc       = get('--desc') ?? '';
 const tagsArg    = get('--tags');
 const githubUrl  = get('--githubUrl');
+// Attribution link. Defaults to githubUrl, which is right for a single-skill
+// repo; pass the repo root explicitly when githubUrl points into a subdirectory.
+const source     = get('--source') ?? githubUrl;
 
 if (!title || !category || !githubUrl) {
-  console.error('Usage: add-skill.mjs --title <title> --category <topic-slug> --githubUrl <url> [--desc <desc>] [--tags "tag1,tag2"]');
+  console.error('Usage: add-skill.mjs --title <title> --category <topic-slug> --githubUrl <url> [--desc <desc>] [--tags "tag1,tag2"] [--source <repo-root-url>]');
   process.exit(1);
 }
 
@@ -44,7 +52,7 @@ const res = await fetch(`${baseUrl}/api/skills`, {
     description: desc,
     tags,
     githubUrl,
-    source: githubUrl,
+    source,
   }),
 });
 

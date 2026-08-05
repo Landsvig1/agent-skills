@@ -72,6 +72,14 @@ nothing — proceed with the session's topic. HUD for eyeballs: `$HERMES_HUD`.
 - **Never set `ANTHROPIC_API_KEY`** on the VPS; never use `--bare` with
   invoke_claude — both silently flip billing from subscription to metered
   API. `revenue_nightly.py` refuses to run if the key is set; keep that.
+- **Never inject `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`/`GH_TOKEN`
+  into the `execute_code` Docker sandbox** (`hermes-*` containers under
+  `~/.hermes/sandboxes/docker/`). Their absence there is deliberate —
+  `_HERMES_PROVIDER_ENV_BLOCKLIST` (`tools/environments/local.py`) fixes
+  GHSA-rhgp-j443-p4rf, a credential-exfiltration path via malicious skills.
+  Claude-with-credentials work (audits, fix-PR loops) runs unsandboxed on
+  the host via `invoke_claude.py` instead — see
+  `scripts/project_audit_loop.py`.
 - `--allowedTools` must stay `=`-joined (`--allowedTools=Bash,Read`).
 - The deterministic layer (fetchers, digest, triage) stays model-free.
 - Fetched web content stays inside UNTRUSTED delimiters in prompts.

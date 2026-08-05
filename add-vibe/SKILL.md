@@ -62,6 +62,26 @@ database write.
 
 If any of these aren't done yet, tell the user which step is missing before proceeding.
 
+## Step 0 — Duplicate check (always, before any insert)
+
+Nothing in the schema stops the same entry being inserted twice, and the
+multi-skill path is the sharp edge: re-running this skill on a 14-skill repo
+inserts 14 duplicate rows in one silent pass.
+
+```bash
+node --env-file=.env.local \
+  ~/.claude/skills/add-vibe/scripts/check-existing.mjs \
+  --catalog <skills|vibes|agents> --url "<URL>" [--title "<title>"]
+```
+
+Exit 0 = safe to insert, exit 2 = already there. For a skills repo, run it once
+per detected `SKILL.md` (after Step 1a gives you the titles) — the script also
+lists which skills from that repo are *already* imported, so a repo that gained
+new skills since the last import only adds the new ones.
+
+On a duplicate: don't insert, and don't "fix" it by tweaking the title. Report
+the existing entry and its ID to the user.
+
 ## Step 1 — Detect: project, skill, or agent (CLI/MCP)?
 
 **If the user's own request already names the catalog** ("add this CLI",
@@ -183,21 +203,16 @@ inserted clean but didn't show up on `/vibes` until the flags were set
 after the fact.
 
 If the user confirms either applies, set it immediately as part of the same
-insert (don't wait to be asked twice) with a one-off script per this
-project's migration convention (run from the vibetrends-dk project root,
-using `pg` + `DATABASE_URL` from `.env.local` — see `vibetrends-dk/AGENTS.md`):
-```js
-import { Client } from 'pg';
-const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-await client.connect();
-await client.query(
-  'UPDATE public.vibes SET is_danish = $1, denmark_specific = $2 WHERE id = $3',
-  [true, false, '<inserted-id>']
-);
-await client.end();
+insert (don't wait to be asked twice):
+
+```bash
+node --env-file=.env.local \
+  ~/.claude/skills/add-vibe/scripts/set-flags.mjs \
+  --catalog vibes --id "<inserted-id>" --danish [--denmark-specific]
 ```
-`denmark_specific` implies `is_danish` — never set the former to `true`
-without the latter also being `true`.
+
+`denmark_specific` implies `is_danish`, so `--denmark-specific` sets both —
+the pair is never `(false, true)`.
 
 ## Step 2b — Skill path (/skills)
 
@@ -217,20 +232,56 @@ For each detected `SKILL.md` path from Step 1:
    `fullstack-devops` depending on layer, an external data/API lookup tool fits
    `domain-data`, and an agent planning/debugging/meta skill fits `agent-methodology`.
    Default to `agent-methodology` only when nothing else clearly fits.
-4. Insert:
+4. **Build `--githubUrl` from the skill's own directory, not the repo root.**
+   For a `SKILL.md` at `plugins/foo/skills/bar/SKILL.md` on branch `main`:
+   ```
+   https://github.com/<owner>/<repo>/tree/main/plugins/foo/skills/bar
+   ```
+   Only a `SKILL.md` sitting at the repo root gets a bare repo URL. This is not
+   cosmetic: the `/skills/<id>` detail page resolves the skill's documentation
+   from `github_url`, and when the URL names a subdirectory it searches *only*
+   that directory — there is deliberately no fall back to the repo root
+   (`src/lib/githubDocSource.ts`). A repo-root URL for a monorepo skill forces
+   the page onto a slug-guessing heuristic, and when that misses, the skill
+   shows the root README describing all 49 of its siblings instead. Step 1a
+   already gave you both the branch and the exact path — use them.
+
+5. Insert:
    ```bash
    node --env-file=.env.local \
      ~/.claude/skills/add-vibe/scripts/add-skill.mjs \
      --title "<title>" \
      --category "<topic-slug>" \
      --desc "<description>" \
-     --githubUrl "https://github.com/<owner>/<repo>" \
+     --githubUrl "https://github.com/<owner>/<repo>/tree/<branch>/<skill-dir>" \
+     --source "https://github.com/<owner>/<repo>" \
      --tags "<comma,separated,tags>"
    ```
-   (`--tags` is optional.) `source` is set automatically to the repo URL.
+   (`--tags` is optional. `--source` is the repo root, for attribution; it
+   defaults to `--githubUrl`, which is only correct for a single-skill repo.)
 
 Repeat for every detected `SKILL.md` in the repo — all in one pass, without
 asking the user to confirm each one individually.
+
+### Danish-flags follow-up
+
+`/skills` defaults to the same "Dansk" tab as the other hubs, filtering on
+`is_danish = true` — so this step is **not** optional here just because the
+original skill path never mentioned it. A Danish-authored skill left at the
+default is inserted successfully and invisible on the page visitors land on.
+
+Auto-detect where you can, otherwise ask once for the whole repo (skills from
+one repo share an author, so this is one question, not one per skill):
+
+```bash
+node --env-file=.env.local \
+  ~/.claude/skills/add-vibe/scripts/set-flags.mjs \
+  --catalog skills --id "<inserted-id>" --danish
+```
+
+Add `--denmark-specific` when the skill is specifically about/for Denmark
+(Danish law, CVR, Danish-language content). The script sets `is_danish`
+implicitly in that case — the pair is never `(false, true)`.
 
 ## Step 2c — Agent path (/cli or /mcp)
 
@@ -276,22 +327,14 @@ genuinely unclear which of CLI/MCP fits).
    `POST /api/agents` at all, and they're not cosmetic: `/cli` and `/mcp`
    default to a "Dansk" tab that only shows entries with `is_danish: true` —
    an entry left at the default `false` is invisible until a visitor
-   switches to the "All" view. If the user confirms either applies, set it
-   with a one-off script per this project's migration convention (run from
-   the vibetrends-dk project root, using `pg` + `DATABASE_URL` from
-   `.env.local` — see `vibetrends-dk/AGENTS.md`):
-   ```js
-   import { Client } from 'pg';
-   const client = new Client({ connectionString: process.env.DATABASE_URL });
-   await client.connect();
-   await client.query(
-     'UPDATE public.agents SET is_danish = $1, denmark_specific = $2 WHERE id = $3',
-     [true, false, '<inserted-id>']
-   );
-   await client.end();
+   switches to the "All" view. If the user confirms either applies:
+   ```bash
+   node --env-file=.env.local \
+     ~/.claude/skills/add-vibe/scripts/set-flags.mjs \
+     --catalog agents --id "<inserted-id>" --danish [--denmark-specific]
    ```
-   `denmark_specific` implies `is_danish` — never set the former to `true`
-   without the latter also being `true`.
+   `denmark_specific` implies `is_danish`, so `--denmark-specific` sets both —
+   the pair is never `(false, true)`.
 
 ## Step 3 — Summary
 
@@ -315,8 +358,14 @@ Ask whether to skip this URL or proceed with a fallback thumbnail. If proceeding
 **Script exits non-zero**:
 Show the full error output. Don't continue to remaining URLs/skills until resolved.
 
+**Duplicate found** (Step 0, exit code 2): stop for that URL. Report the
+existing entry's title, ID and link. Never work around it by renaming the
+entry — a near-duplicate row is worse than a rejected import. For a repo that
+has genuinely gained new skills since the last import, insert only the ones
+the script didn't list.
+
 **Missing env vars**:
-The script prints a clear error. Point the user to `.env.local` — the missing key is `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BOT_ACCOUNT_EMAIL`, or `BOT_ACCOUNT_PASSWORD`.
+The script prints a clear error. Point the user to `.env.local` — the missing key is `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BOT_ACCOUNT_EMAIL`, `BOT_ACCOUNT_PASSWORD`, or `DATABASE_URL` (the last one is used by `check-existing.mjs` and `set-flags.mjs` only).
 
 **Bucket not found**:
 Run `node --env-file=.env.local ~/.claude/skills/add-vibe/scripts/setup-storage.mjs` first.
