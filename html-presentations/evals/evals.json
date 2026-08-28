@@ -1,0 +1,35 @@
+{
+  "skill": "html-presentations",
+  "version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "eval-preso-01",
+      "prompt": "Create an interactive 6-slide hybrid presentation deck for Miljøstyrelsen showing regulatory timeline and an interactive budget calculator on slide 4",
+      "expected_output_files": [
+        "/Users/kasperlandsvig/Documents/Claude Cowork/agy outputs/HTML_Artifacts/miljoestyrelsen-hybrid-deck-demo.html"
+      ],
+      "assertions": [
+        {
+          "type": "file_exists",
+          "target": "agy outputs/HTML_Artifacts/miljoestyrelsen-hybrid-deck-demo.html"
+        },
+        {
+          "type": "script_exit_zero",
+          "command": "python3 /Users/kasperlandsvig/.claude/skills/html-presentations/scripts/lint-artifact.py 'agy outputs/HTML_Artifacts/miljoestyrelsen-hybrid-deck-demo.html'"
+        },
+        {
+          "type": "pattern_match",
+          "pattern": "aspect-ratio: 16 / 9"
+        },
+        {
+          "type": "pattern_match",
+          "pattern": "ArrowRight"
+        },
+        {
+          "type": "pattern_match",
+          "pattern": "navigator.clipboard.writeText"
+        }
+      ]
+    }
+  ]
+}

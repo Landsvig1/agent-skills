@@ -1,5 +1,6 @@
 {
-  "skill_name": "html-artifacts",
+  "skill": "html-interactive-decisions",
+  "version": "1.0.0",
   "evals": [
     {
       "id": 1,
@@ -27,6 +28,20 @@
         "The output implements CSS @starting-style entry transitions.",
         "The output implements CSS 'allow-discrete' exit transitions for display state shifts.",
         "The output does not import heavy frameworks or bundlers (no React, Vue, Tailwind CSS scripts/stylesheets)."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Compare three database migration strategies (Direct Cutover, Dual-Write Sync, and CDC Shadow Mirroring) for a work presentation on a locked-down laptop without Node.js. Provide an interactive decision matrix where reviewers can select a strategy, adjust traffic risk tolerance, and export the decision back to Claude.",
+      "expected_output": "A zero-node, single-file HTML decision surface featuring side-by-side strategy cards, radio selectors, a risk tolerance slider, a system font stack, and a mandatory floating clipboard export button that formats choices as Markdown for Claude.",
+      "files": [],
+      "expectations": [
+        "The HTML file is created in the correct outputs directory.",
+        "The file is 100% single-file and self-contained with no Node.js, Vite, or npm build required.",
+        "No Tailwind CDN script or external framework runtime is imported.",
+        "Font stack includes resilient system font fallbacks (system-ui, -apple-system, or sans-serif).",
+        "Contains an export button using navigator.clipboard.writeText to copy decisions back to Markdown/Claude.",
+        "Passes the zero-dependency linter scripts/lint-artifact.py cleanly."
       ]
     }
   ]
