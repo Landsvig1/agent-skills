@@ -1,551 +1,525 @@
 ---
 name: bot-pr-review
 description: >
-  Daily triage of Kasper's coding bot's (Jules/Bolt/Sentinel) PRs across
-  Koalafilm, Vibetrends.dk, and AiAuto — surfaces duplicate/stale bot PRs,
-  merges the ones that are genuinely tiny and safe after a light diff read,
-  runs the full code-review skill (with conditional auto-fix + re-review +
-  merge) on anything larger or riskier, and rejects or escalates PRs that
-  are technically fine but unwarranted bloat or a judgment call. Make sure
-  to trigger this whenever Kasper asks to check/review the bot's PRs, clean
-  up the PR backlog/merge queue, wants to know what Jules/Bolt/Sentinel has
-  been up to, asks about open PRs across his projects, or wants a status
-  check on any of the three repos' pull requests — even if he doesn't name
-  the bot or this skill explicitly. Also runs automatically every morning
-  via the bot-pr-review-daily scheduled task. Never touches PRs authored by
-  Kasper himself (see the bot-identification rule below — author/is_bot is
-  NOT a reliable signal here).
+  Daily PR triage for vibetrends.dk, the only repo this routine covers.
+  Handles the three automated PR classes the repo actually produces:
+  agent catalog submissions (`submission/*` branches, where merge means
+  approve into the public catalog), the weekly hot-ranking PRs
+  (`hot-ranking/YYYY-Www`, which routinely open duplicates), and the
+  dormant coding-bot classes (Bolt/Sentinel/Jules). It closes clear
+  rejects and duplicates on its own, and leaves genuine approval
+  candidates open with a review comment for Kasper. Trigger whenever
+  Kasper asks to check or review vibetrends PRs, drain the submission
+  queue, clean up the PR backlog, asks what is waiting on the catalog,
+  or wants a status check on the repo's open pull requests. Also runs
+  nightly via bot_pr_review_daily.py on the Hermes VPS. Never acts on
+  Kasper's own PRs.
 compatibility: >
-  Requires an authenticated `gh` CLI with merge/close permissions on all
-  three repos, git with worktree support, and each repo's own toolchain
-  (npm for Koalafilm/Vibetrends.dk, pnpm for AiAuto) installed locally for
-  typecheck/lint/test verification before merging.
+  Requires an authenticated `gh` CLI with merge and close permissions on
+  Landsvig1/Vibetrends.dk, git with worktree support, and npm for
+  typecheck/lint/test verification before any code merge.
 ---
 
-# Bot PR review
+# Vibetrends PR review
 
-Kasper runs a coding bot (Jules/Bolt/Sentinel-style tool) that opens PRs
-daily against his 3 live-data projects. It authenticates through Kasper's
-own GitHub identity, so `author.login`/`is_bot` on the PR is useless for
-telling its PRs apart from Kasper's own — every PR shows `Landsvig1`. Bot
-PRs are identified only by **title prefix** (`⚡ Bolt:` / `🛡️ Sentinel:`) or
-**branch name** (`jules-`, `bolt-`/`bolt/`, `sentinel-` followed by a long
-numeric ID). Anything that doesn't match either pattern is a human (Kasper's
-own) PR — report it in the overview but never act on it.
+Scope: **one repo, `Landsvig1/Vibetrends.dk`.** Koalafilm and AiAuto were
+dropped 2026-08-30 when everything was refocused on vibetrends.dk. Their
+hard-won lessons are parked at the bottom of this file, not deleted, so
+re-adding a repo is a matter of restoring a table row rather than
+re-learning them. See `Agents/Hermes/FOCUS.md` for the wider focus ledger.
 
-**Hard rule**: only take actions this skill explicitly describes below
-(comment, close-as-duplicate/superseded, close-as-bloat, escalate-for-
-approval, merge, or push a fix commit to a bot's own PR branch). Never
-touch Kasper's own PRs, never force-push, never apply a fix to something
-outside the deny-list decision tree without stopping to report instead.
+| Local path (Mac) | Local path (VPS) | Remote |
+|---|---|---|
+| `projects/vibetrends-dk` | `/home/administrator/vibetrends-dk` | `Landsvig1/Vibetrends.dk` |
 
-## Skeptical review lens — read before Step 2 or 3
+Read `AGENTS.md` and `CLAUDE.md` in the repo before reviewing anything.
+`AGENTS.md` carries the project's own PR quality bar, and several of the
+reject criteria below are just that bar applied.
 
-Jules/Bolt/Sentinel run on a weaker model than whatever's running this
-skill. That has two concrete consequences for how you review, not just
-what you check:
+## Why this rewrite happened (read once, it explains the whole design)
 
-**Never take the bot's own claims as evidence.** PR descriptions'
+Between late July and 2026-08-30 this routine ran every night and did
+nothing at all. It was looking for `⚡ Bolt:`/`🛡️ Sentinel:` titles and
+`^(jules|bolt|sentinel)[-/]` branches. Vibetrends has produced none since
+late July. Every actually-open PR was a `submission/skills/*` branch,
+which the old rules classified as "human, out of scope", so nine of them
+accumulated over thirteen days while the log truthfully reported
+"0 bot PRs, nothing to do".
+
+That backlog then caused a second bug. The content loop
+(`project_audit_loop.py --mode content`) dedupes candidates against the
+live catalog, and a pending submission is not in the live catalog, so it
+regenerated the same skills every run: `bot-pr-review` reached slug
+`bot-pr-review-3` across PRs #152/#159/#164. The loop's own
+`vibetrends_submitted.json` ledger was supposed to prevent exactly this,
+but it lived under `knowledge/`, which the Mac pushes with
+`rsync --delete`, so it was deleted twice a day. Fixed 2026-08-30 by
+moving the ledger to `~/.hermes/state/`.
+
+**The lesson to carry: a queue that nobody drains does not sit still, it
+feeds back into whatever produces it.** When this routine reports "nothing
+to do" on a repo that clearly has open PRs, that is a bug in the routine,
+not a quiet day. Check what the open PRs actually are before believing it.
+
+## Step 0: classify every open PR
+
+```bash
+gh pr list -R Landsvig1/Vibetrends.dk --state open \
+  --json number,title,headRefName,createdAt,labels,files,mergeable
+```
+
+Assign every PR to exactly one class. If a PR matches none of them, it is
+Class D by default (leave it alone) and say so in the report by name, so a
+new automation class cannot silently go unhandled the way submissions did.
+
+| Class | Identified by | This routine may |
+|---|---|---|
+| **A. Catalog submission** | branch `^submission/`, label `submission`, title `Submission: <name>` | close (reject) autonomously; never merge |
+| **B. Hot ranking** | branch `^hot-ranking/\d{4}-W\d{2}` | close superseded duplicates; merge the surviving one only if CI is green |
+| **C. Coding bot** | title starts `⚡ Bolt:` or `🛡️ Sentinel:`, or branch `^(jules|bolt|sentinel)[-/]` | full Step 3 pipeline (merge / fix / reject / escalate) |
+| **D. Kasper's own** | anything else (`feature/*`, `fix/*`, `refactor/*`, `docs/*`, ...) | nothing, report only |
+
+Class D is the safety default. `author.login`/`is_bot` is useless in this
+repo: every PR is authored by `Landsvig1`, including the automated ones,
+because the workflows use the owner's own token. Branch and label are the
+only reliable signals.
+
+## Step 1: Class A, catalog submissions
+
+This is now the routine's main job. Read `.github/workflows/submission-review.yml`
+and `submission-resolve.yml` in the repo for the mechanism; the short version:
+
+- One PR per pending submission, opened every 15 minutes by a workflow.
+- The PR body is a manifest at `submissions/<type>/<id>.md` and nothing else.
+- **Merge means approve**: the entry becomes publicly visible in the catalog.
+- **Close without merge means reject**: the DB row is deleted permanently.
+- The `submission` label is load-bearing. `submission-resolve.yml` gates its
+  entire job on it. Never remove it.
+
+### The standing policy, decided by Kasper 2026-08-30
+
+**Close clear rejects autonomously. Never merge an approval. Escalate every
+genuine candidate to Kasper with a comment.**
+
+The reason is not caution about the code, it is positioning: `PRODUCT.md`
+bets vibetrends' whole pitch on "curated, never scraped", and the git
+history of accepted manifests is that claim made auditable. An agent
+approving agent-written entries into that catalog would hollow out the one
+thing the product claims. Rejecting noise needs no such authority.
+
+Do not re-litigate this per PR. Reject or escalate, never merge.
+
+The single narrow exception is a PR whose row is *already live* in the
+catalog, where merging records a decision the DB has already made rather
+than making one. That exception is defined below, and it is evaluated
+**after** the reject criteria, never before — see "Only after the criteria:
+is the row already live?".
+
+### Reject criteria (close it, with a specific reason)
+
+Each of these is concrete and checkable. **Run all six before anything
+else** — before the liveness lookup, before any judgement about whether the
+PR is "really" a pending decision. Nothing short-circuits them. If none
+apply, the PR is a candidate and goes to escalate.
+
+1. **Duplicate of another open submission** for the same skill. Match on
+   the manifest's `Kilde`/`GitHub` URL, and on title slug independently:
+   the same skill has been submitted from two different URLs before
+   (`simply-launch` as both `Landsvig1/agent-skills` and
+   `Landsvig1/vibetrends-dk/.agents/skills/`), so URL matching alone
+   misses real duplicates. Keep exactly one. **Criterion 2 decides which
+   one whenever a slug suffix is present: keep the unsuffixed original,
+   close the suffixed resubmissions.** The suffix is not a version, it is
+   a collision artefact, and the original is the row the catalog will key
+   on. Only when no suffix distinguishes them do you choose on manifest
+   quality, tie-breaking to the newest. Close the others naming the
+   winner.
+2. **Slug carries a collision suffix** (`-2`, `-3`, ...) while an earlier
+   submission of the same title is still open or already live. The suffix
+   is direct evidence of the resubmission loop, not a distinct entry.
+3. **`description_da` is a copy of the English text.** `AGENTS.md` is
+   explicit: that column is nullable, null means "not translated yet", and
+   read paths fall back through `withEnglishFallback` in `src/lib/db.ts`.
+   Copying English in permanently disables the fallback and makes a real
+   translation indistinguishable from a copy. Migration
+   `20260804000000_description_da_nullable.sql` had to clean this up
+   across 118 rows once already.
+4. **Source URL is dead, private, or does not contain what the manifest
+   claims.** Actually fetch it, every time. On 2026-08-30 three entries
+   that were already live and public (`dk-techblog`, `gsc-admin`,
+   `bot-pr-review`) pointed at
+   `github.com/Landsvig1/vibetrends-dk/tree/main/.agents/skills/<name>`,
+   which 404s twice over: the repo slug is `Vibetrends.dk`, not
+   `vibetrends-dk`, and even corrected, `.agents/skills/` holds only
+   `supabase`, `supabase-postgres-best-practices` and
+   `vibetrends-analytics`. The content loop had invented a
+   plausible-looking path. A URL that looks right is not a URL that
+   resolves, and a fabricated source link in a catalog whose whole pitch
+   is curation is worse than a missing one. A 404 is a reject, not an
+   escalation — unless the row is already live, in which case it is an
+   escalation, because the bad data is already public and unpublishing it
+   is Kasper's call. This criterion is now also enforced mechanically by
+   `.github/workflows/submission-urls.yml`, so a PR failing it shows a red
+   `Submission URLs` check; that check failing is sufficient evidence, but
+   its passing does not mean the page contains what the manifest claims.
+5. **The entry is useful only to Kasper.** The catalog is public. A skill
+   hardcoded to his own hosts, repos, or bot names has no value to a
+   reader. The submission of this very skill (PR #164) says so in its own
+   Danish description: "Uden nøjagtig samme bot-navngivning og
+   repo-opsætning giver skillen ingen værdi til andre end Kasper." Take
+   that at face value and close it.
+6. **Category is not one of `SKILL_CATEGORY_SLUGS`**, or the entry is
+   filed under the wrong hub (a CLI tool submitted to `/skills`).
+
+Close with a reason that names the specific criterion:
+
+```bash
+gh pr close <n> -R Landsvig1/Vibetrends.dk \
+  --comment "Closing: <criterion>, <the concrete evidence>." --delete-branch
+```
+
+Do not delete the branch if the workflow owns it and closing alone
+resolves the row; check `submission-resolve.yml` first. When in doubt,
+close without `--delete-branch`, the sweep handles it.
+
+### Only after the criteria: is the row already live?
+
+**This check runs LAST, not first, and it is a permission to merge only for
+a PR that has already passed every criterion above.**
+
+It used to run first, and that ordering is what put three entries with
+fabricated source URLs into the public catalog on 2026-08-30 (PRs #152,
+#160, #161, merged in a 12-second scripted batch). All three were already
+live, so the fast path fired and returned "merge" before criterion 4 —
+the one that says fetch the source URL every time — ever ran. Their
+`Kilde`/`GitHub` URLs 404'd twice over. The criterion was written down,
+correct, and never reached. **An exception evaluated before the checks it
+is an exception to is not a fast path, it is a bypass.**
+
+Look the entry up in the live catalog by the manifest's **ID**, not its
+title:
+
+```bash
+curl -s https://vibetrends.dk/api/skills | \
+  python3 -c "import sys,json;d=json.load(sys.stdin);items=d if isinstance(d,list) else d.get('items',[]);print([i for i in items if i.get('id')=='<manifest id>'])"
+```
+
+If the ID is already live, the row was approved out of band with
+`node scripts/review-queue.mjs approve`, which sets `review_state` without
+touching the PR. The PR is then an orphaned record, not a pending
+decision, and merging it writes the manifest into git history — the
+curation ledger `submission-review.yml` describes and `PRODUCT.md` leans
+on for the "curated, never scraped" claim. Closing would leave a
+permanent gap in that ledger for an entry that is publicly live.
+
+So, in order:
+
+1. **The PR failed a reject criterion AND the row is already live.**
+   Do not merge. Do not close. **Escalate.** This is the dangerous case
+   and the one that actually happened: a live row with a dead source URL
+   is not a ledger gap to be tidied up, it is bad data already visible to
+   the public, and merging only records the badness in git. The DB row
+   needs unpublishing, which is Kasper's call and not this routine's.
+   Comment with the criterion it failed and the evidence, and list it
+   under "Needs your call".
+2. **The PR passed every criterion AND the row is already live.** Merge
+   it. The DB is already decided; the merge only records it. This is not
+   approving.
+3. **The PR passed every criterion and the row is NOT live.** That is a
+   normal approval candidate. Escalate per the standing policy — never
+   merge.
+
+**Never `--admin`, anywhere in this routine.** Submission PRs used to be
+permanently `BLOCKED` with zero checks, because `submission-review.yml`
+opened them with the default `GITHUB_TOKEN` and GitHub does not trigger
+`pull_request` workflows on `GITHUB_TOKEN`-authored events — so `--admin`
+was the only way to merge one. That was fixed at the source: the workflow
+now opens PRs with the `SUBMISSION_PR_TOKEN` PAT, so `quality`, `e2e` and
+the `Submission URLs` check all run and report normally. A submission PR
+that is still blocked now is blocked by a check that genuinely ran, and
+forcing past that is exactly what `--admin` must never be used for. If
+you find yourself reaching for it, the answer is escalate.
+
+Criterion 4 is also machinery now, not just a written rule:
+`.github/workflows/submission-urls.yml` runs
+`scripts/check-submission-urls.mjs` on every PR and fails when a
+manifest's `Kilde`/`GitHub`/`Demo`/`Billede` URL does not resolve. Still
+fetch the URL yourself when reviewing — the workflow checks that a URL
+resolves, not that the page contains what the manifest claims, which is
+the other half of the criterion.
+
+
+### Escalate criteria (leave open, comment, list in the report)
+
+A submission that survives all six checks is a real candidate. Comment on
+it with what you verified, so Kasper can approve by clicking merge without
+re-deriving anything:
+
+- the source URL you fetched and that it matches the manifest,
+- whether `description_da` is a real translation or correctly omitted,
+- whether the entry duplicates anything already live in the catalog
+  (check `/api/skills`, `/api/vibes`, `/api/cli`, `/api/mcp-servers`),
+- one line on who the entry is useful to, other than Kasper.
+
+Then list it under "Needs your call" in Step 4 with the PR number.
+
+### Volume rule for Class A
+
+If more than **10** submission PRs are open, do not review them all. Do the
+duplicate and slug-suffix passes across the whole set first (those are
+mechanical and resolve the bulk), then review at most 6 of the survivors
+in detail and say plainly in the report how many were left untouched. A
+submission backlog growing faster than review capacity is itself the
+signal worth reporting, and it means the content loop's volume cap needs
+lowering rather than the review going faster.
+
+## Step 2: Class B, hot-ranking PRs
+
+`scan-hot-skills.yml` opens a `hot-ranking/<year>-W<week>` PR weekly, and
+`resolve-hot-ranking.yml` cleans up. In practice it opens **duplicates for
+the same week**, every week: W33 produced #145, #146, #148 all closed
+against #150 merged; W34 produced #153, #155 closed against #157; W35
+produced #163 closed against #168.
+
+Handle it as pure mechanical cleanup:
+
+1. Group open hot-ranking PRs by their `YYYY-Www` week key.
+2. Within a week, keep the newest and close the rest as superseded,
+   naming the survivor.
+3. The survivor merges only if CI is green and the diff touches nothing
+   outside the ranking data files. Anything else routes to Class C's
+   review pipeline.
+4. **If this recurs again, say so in the report every single run.** Three
+   consecutive weeks of duplicates is a workflow concurrency bug worth
+   fixing at the source (`scan-hot-skills.yml` needs a `concurrency:` group
+   the way `submission-review.yml` has one), not a permanent cleanup chore
+   for this routine. Do not fix the workflow unasked, that is outside
+   scope, but do not let it go unreported either.
+
+## Step 3: Class C, coding-bot PRs
+
+Dormant since late July 2026, but the machinery stays because the bots can
+be pointed back at this repo at any time. Everything below is unchanged
+hard-won behaviour; it cost real debugging to learn.
+
+### Skeptical review lens
+
+**Never take the bot's own claims as evidence.** PR description
 "Impact"/"Measurement" sections, `.jules/*.md` journal entries, and
 benchmark tests that only `console.log` a number are the bot grading its
-own homework — written by the same model that wrote the code. A test named
-"performance benchmark" with no real assertion (Koalafilm #8, merged
-2026-07-12, is the reference case: `console.log` a "137x faster!" line,
-comment says logging-not-asserting is deliberate "to prevent flaky
-pipeline failures") is not verification, it's marketing copy that happens
-to live in a `.test.ts` file. Independently re-derive whether a claimed
-fix/optimization is real by reading the code and reasoning about it (or
-actually re-measuring) — never cite the PR's own narration as the reason
-something is safe.
+own homework. `AGENTS.md` requires a performance benchmark to make a real
+assertion (a timing threshold, or a render/call-count check that fails on
+regression), not a bare log line. Re-derive whether a claimed fix is real
+by reading the code.
 
-**Check whether the complexity is warranted for what this project
-actually is**, not just whether it's technically correct. Read the
-target repo's CLAUDE.md/AGENTS.md first — koalafilm.dk, vibetrends.dk, and
-aiauto.dk are all small solo-founder marketing/community sites, not
-high-traffic systems. A caching layer with an eviction policy, a new
-abstraction, or a memoization scheme can be flawless code and still be
-bloat if the project will never see the request volume that would make it
-pay for itself. Ask: would this complexity earn its keep at 10x current
-traffic? If the honest answer is "no, this solves a problem the project
-doesn't have," it's bloat regardless of whether tests pass — route it to
-**reject**, not merge (see Step 2/3 below).
+**Check whether the complexity is warranted for what vibetrends actually
+is**: a small community and showcase site. A caching layer with an
+eviction policy can be flawless code and still be bloat. Ask whether it
+would earn its keep at 10x current traffic. If not, that is **reject**,
+not merge, regardless of passing tests.
 
-**Watch for drift across PRs, not just within one.** A single
-over-engineered PR is tolerable; ten of them over a month is architecture
-rot an unattended pipeline can inflict without anyone noticing day-to-day.
-If a repo has taken on several new caching/memoization patterns, growing
-`.jules/*.md` journals, or expanding abstraction surface across recent
-runs, say so in the Step 4 summary even if each individual PR this run
-looks fine in isolation — that pattern itself is worth Kasper seeing.
+**Two repo-specific traps from `AGENTS.md`:**
+- `LanguageProvider`'s `t` is **not memoized**. Any `useCallback`/
+  `React.memo` optimization depending on `t` being referentially stable is
+  silently broken (confirmed on PR #73). Reject memoization PRs built on
+  that assumption, or require the upstream instability be fixed first.
+- The extract-to-`<XCard />`-then-`React.memo` pattern has been hand-rolled
+  6+ times (`SkillCard`, `ProjectCard`, `AgentCard`, `ThreadCard`, blog and
+  forum cards) with no shared wrapper ever built. A 7th copy is a reject;
+  a shared memoized list-card wrapper is the only acceptable version.
 
-## The three repos
+**Watch for drift across PRs, not just within one.** Several new
+caching/memoization patterns or an expanding abstraction surface across
+recent runs is architecture rot. Report the pattern in Step 4 even when
+each individual PR looks fine.
 
-| Project | Local path | GitHub remote |
-|---|---|---|
-| koalafilm.dk | `projects/koalafilm` | `Landsvig1/Koalafilm` |
-| vibetrends.dk | `projects/vibetrends-dk` | `Landsvig1/Vibetrends.dk` |
-| aiauto.dk | `projects/AiAuto` | `Landsvig1/AiAuto` |
+### Pre-flight checks, in order
 
-Paths are relative to the Claude Cowork workspace root
-(`~/Documents/Claude Cowork/`). If a new project starts getting bot PRs,
-add it to this table rather than hard-coding a 4th special case anywhere
-below.
+**Fetch fresh first.** `git fetch origin main <pr-branch>` before any
+`merge-base` or `diff`. A stale local `origin/main` computes the wrong
+merge-base and reviews the wrong diff.
 
-## Step 1 — Overview
-
-For each repo:
+**Never create a worktree from a bare branch name.** Always reset from the
+remote ref, and record the SHA:
 
 ```bash
-gh pr list -R Landsvig1/<Repo> --state open --json number,title,headRefName,createdAt,files
+git worktree add <workspace>/.worktrees/<name> -B <local-name> origin/<pr-branch>
+git rev-parse origin/<pr-branch>   # this is the reviewed SHA
 ```
 
-Classify each PR as **bot** (title starts `⚡ Bolt:` or `🛡️ Sentinel:`, OR
-`headRefName` matches `^(jules|bolt|sentinel)[-/]`) or **human** (everything
-else). List human PRs in the summary and stop there for those — out of
-scope.
+`-B` force-resets past any stale local branch from an earlier run. Without
+it, a run can review an old commit and report it as current fact
+(Vibetrends #60 was reported as missing a fix the bot had already pushed).
+Before any comment, merge, or close, re-run `git ls-remote origin <branch>`
+and confirm the SHA still matches. If it moved, redo the review.
 
-For the bot PRs, run these checks **before** any tiny/safe-vs-needs-review
-classification:
+**Journal-file conflict.** The bot creates `.jules/bolt.md` or
+`.jules/sentinel.md` as a new file on every branch, so once one PR merges,
+every other open PR shows `CONFLICTING` on an otherwise clean diff. Check
+with `git merge-tree $(git merge-base origin/main <branch>) origin/main
+<branch>`. If the journal is the *only* collision, resolve by
+concatenating both versions chronologically. If something else collides
+too, handle that on its own merits first, and if it does not resolve
+cleanly either way, escalate rather than inventing a third version.
 
-**Duplicate/overlap check** — for any two open bot PRs in the same repo
-whose `files` sets overlap, don't classify either yet. Pull both diffs
-(`gh pr diff <n> -R <repo>`), read them, and decide: if one is a strict
-superset/cleaner version of the other (more correct error handling, no
-unrelated scope creep like a stray lockfile), keep it and close the other
-with `gh pr close <n> --comment "Closing as duplicate of #<winner> — <one
-concrete reason>" --delete-branch`. If genuinely unclear, leave both open
-and note it in the report instead of guessing.
+**Staleness.** `git log origin/main --oneline -- <changed files>` for
+commits after the PR opened. If main already covers the same intent
+differently, close as superseded naming the commit.
 
-**Journal-file conflict** — the bot writes to `.jules/bolt.md` or
-`.jules/sentinel.md` as a "new file" on every branch, so once any one PR
-touching that file merges, every other still-open PR that also "creates"
-it will show `mergeStateStatus: CONFLICTING` on an otherwise-clean diff.
-This is not a real conflict — before concluding a PR is genuinely
-conflicting, check whether the only colliding file is a `.jules/*.md`
-journal: `git merge-tree $(git merge-base origin/main <branch>) origin/main
-<branch>` (read-only, no working-tree changes) to see exactly what
-conflicts. If it's just the journal, resolve by concatenating both
-versions' entries (chronological order) once you're in Step 2/3's worktree
-— don't let this trigger a staleness/duplicate judgment call on its own.
+**Main-drift silent-deletion check, mandatory for every PR regardless of
+size.** A PR can merge with zero textual conflicts and still delete code
+main added after the fork point. Vibetrends #60 would have cleanly merged
+and silently deleted an entire `resolveAgentWriteLimit` rate limiter, a
+real security regression.
 
-If the journal isn't the *only* thing conflicting — some other file
-collides too — don't force the journal's easy resolution onto the whole
-PR. Handle the non-journal conflict on its own merits first (staleness
-check below, or a straight merge-conflict read if neither PR's change
-strictly supersedes the other), and only fall back to the journal's
-concatenation trick for that one file once the real conflict has its own
-answer. A sandbox test run (2026-07-12) hit exactly this: a PR's branch
-predated both the journal's first commit *and* an unrelated bugfix that
-landed on main afterward touching the same function the PR itself
-modified — two independent reasons to conflict, tangled in one diff. If
-the non-journal conflict doesn't resolve cleanly either way (neither
-version is a strict improvement, or reconciling them means writing new
-code neither PR proposed), that unresolvable tangle is itself a reason to
-escalate rather than merge — don't invent a third version of the fix
-yourself to force a merge through.
+1. `BASE=$(git merge-base origin/main origin/<pr-branch>)`
+2. `git diff --name-only $BASE origin/main -- <PR's touched files>`. Empty
+   means clear, move on.
+3. For each such file, list top-level symbols main **added** since `$BASE`.
+4. In a scratch worktree off `origin/main`, `git merge origin/<branch>
+   --no-commit --no-ff`, then confirm every symbol from step 3 is still
+   present by name. Discard the worktree either way, this is a probe.
+5. Any missing symbol means the PR is **never auto-mergeable as-is**. Fix
+   deliberately (merge main in, or cherry-pick the symbol back), re-verify,
+   and only then proceed. If reconciling needs logic neither side proposed,
+   escalate.
 
-**Staleness check** — for each remaining bot PR, check whether main has
-independently solved the same problem since the PR's branch point:
-`git -C <path> log origin/main --oneline -- <changed files>` for commits
-after the PR opened. If the file(s) the PR touches have a materially
-different implementation on main already covering the same intent, don't
-force a merge-conflict resolution — close as superseded with a comment
-naming the commit that already covers it, same as Koalafilm #2.
+**Do not auto-rebase bot PRs** as blanket preprocessing. It rewrites the
+bot's commits and invalidates every reviewed-SHA citation. Only touch a
+branch's history for a concrete named problem.
 
-**Main-drift silent-deletion check — mandatory for every remaining PR,
-regardless of size or how clean the diff looks.** A bot PR can merge with
-zero textual conflicts and still silently delete code that main added
-independently after the PR's fork point, if the PR's diff happens to
-rewrite the region main's new code lives in without git treating it as a
-conflicting hunk. This is not a hypothetical: Vibetrends.dk #60 (a DoS-fix
-PR) would have cleanly merged and silently deleted an entire
-`resolveAgentWriteLimit` cost-control rate-limiter that main had shipped
-in the same file after the PR branched — a real security regression, and
-the original review pass never ran a check that would have caught it.
+**Lockfile drift.** This repo uses **npm** (`package-lock.json`). Never
+allow `pnpm-lock.yaml`; `AGENTS.md` records it being stripped from or
+causing rejection of at least five PRs, most recently #80. Strip it
+unconditionally: `git rm --cached pnpm-lock.yaml && rm -f pnpm-lock.yaml`,
+commit `chore: drop stray pnpm-lock.yaml (repo uses npm)`, push. Same
+treatment for a `package-lock.json` regen when `package.json` itself did
+not change; revert to main's version and prove it with
+`npm ci`.
 
-For every PR still standing after the dedup/staleness checks above, before
-Step 2's classification or Step 3's verdict:
+**Generated-artifact drift.** `playwright-report/`, `test-results/`,
+`coverage/`, `*.log` dev-server output. If the PR *deletes* one, keep the
+cleanup. If it *adds* one, skim it for anything secret-shaped first (a
+dev-server log is exactly the kind of file that leaks a token), then strip
+it the same way. If `.gitignore` lacks the pattern, note it in Step 4 but
+do not edit `.gitignore` unasked.
 
-1. `git fetch origin main <pr-branch>` (fresh, per the rule above).
-2. `BASE=$(git merge-base origin/main origin/<pr-branch>)`.
-3. List files main changed since the fork point that this PR also
-   touches: `git diff --name-only $BASE origin/main -- <PR's touched files>`.
-   If empty, this check is clear — main hasn't touched anything this PR
-   also touches, skip to the next PR.
-4. For each such file, list top-level symbols (functions, exported
-   consts, classes) that main **added** since `$BASE` — grep the
-   `git diff $BASE origin/main -- <file>` output for added lines matching
-   a top-level declaration (e.g. `^\+\s*(export\s+)?(async\s+)?function
-   \w+|^\+\s*export\s+const\s+\w+\s*=|^\+\s*class\s+\w+`, adapted to the
-   file's language).
-5. Simulate the merge: in a scratch worktree off current `origin/main`,
-   `git merge origin/<pr-branch> --no-commit --no-ff`. Whether or not git
-   reports a conflict, open the resulting file(s) and confirm every symbol
-   found in step 4 is still present by name. Discard the scratch worktree
-   either way (`git merge --abort` or just remove the worktree) — this is
-   a probe, not a real merge.
-6. If any symbol is missing from the simulated result: this PR is **never
-   auto-mergeable as-is**, no matter what Step 2's size heuristic or
-   Step 3's code-review pass conclude. Treat it the same as an
-   unresolvable conflict tangle (see the journal-conflict section above):
-   merge main into the PR branch (or cherry-pick the missing symbol back
-   in) as a deliberate fix-commit, re-run the affected checks, and only
-   proceed to merge if the fix is clean and verified — same discipline as
-   Step 3's "fix them... commit, push, re-review" flow. If reconciling
-   requires writing logic neither side proposed, escalate instead of
-   guessing (same rule as the unresolvable-tangle case).
+**Compute size excluding that noise** before applying any heuristic:
+`git diff ... -- . ':!package-lock.json' ':!pnpm-lock.yaml' ':!.jules'
+':!playwright-report' ':!test-results' ':!*.log'`. A real PR once read as
+9,162 lines raw and 193 lines clean.
 
-**Do not auto-rebase bot PRs as a blanket preprocessing step**, even
-though this check makes main-drift a recurring problem for PRs that sit
-open for days. Rebasing rewrites the bot's own commits — if the bot pushes
-another commit to the same branch after an unprompted rebase, the next
-push can conflict with or duplicate work in ways nobody is watching for,
-and the rewritten SHAs stop matching what the reviewed-SHA citation
-(above) or the bot's own PR history refers to. Only touch a PR branch's
-history when this check (or Step 3's review) finds a concrete, named
-problem to fix — never rebase speculatively just because main has moved.
+**Volume governor.** If more than 5 Class C PRs are open, run the
+mechanical cleanup on all of them but cap **actual merges at 3**. Fill
+those slots with tiny/safe candidates before full-review candidates.
+Past the cap, do a lighter read so the escalation comment is still
+informed, and say "capped this run, not given the full review pass".
 
-**Lockfile drift** — if a bot PR's diff adds `pnpm-lock.yaml` or
-`yarn.lock` in a repo whose own `package.json`/existing lockfile says
-otherwise (check `ls package-lock.json bun.lockb yarn.lock pnpm-lock.yaml`
-in the repo before this PR's branch), strip it unconditionally: clone/fetch
-the PR branch, `git rm --cached <lockfile> && rm -f <lockfile>`, commit
-`chore: drop stray <lockfile> (repo uses <real pm>)`, push to the PR
-branch. This is pure cleanup — do it regardless of what tier the PR ends
-up in. The same applies even when the lockfile matches the repo's real
-package manager (e.g. a `pnpm-lock.yaml` regen in a pnpm repo) if
-`package.json` itself didn't change — a lockfile can silently drop real
-dependency entries with nothing to justify it (AiAuto #5, 2026-07-12: the
-regen removed hundreds of transitive entries, `package.json` untouched).
-Revert to main's version and confirm with `<pm> install --frozen-lockfile`
-that it still installs clean — that's the proof nothing in the PR actually
-needed the regen, not just an assumption.
+### Classification and outcomes
 
-**Generated-artifact drift** — bot PRs periodically commit build/test
-output that was never meant to be tracked: `playwright-report/`,
-`test-results/`, `*.log` dev-server output, `coverage/`. Hit twice on
-2026-07-12 (AiAuto #4's `playwright-report/index.html` at 24k lines,
-completely swamping the PR's real 14-line diff; AiAuto #5's
-`next_start.log`). Handle case by case, not mechanically like the
-lockfile: if the PR is *deleting* a previously-committed artifact, that's
-a welcome cleanup, keep it. If it's *adding/modifying* one, strip it the
-same way as a stray lockfile (`git rm --cached`, commit, push) — but
-first skim the file for anything secret-shaped (API keys, tokens,
-connection strings, env var dumps) before deciding to keep or discard it;
-a dev-server log is exactly the kind of file that can leak something. If
-a repo has no `.gitignore` entry for the pattern that just showed up,
-note it in Step 4 — worth Kasper adding one so this stops recurring, but
-don't edit `.gitignore` yourself unasked, that's outside this skill's
-scope.
+**Tiny/safe** requires all of: main-drift check clear; nothing on the
+deny-list; net diff under ~150 lines and 5 files; CI green (or the only
+red check fails identically on an unrelated open PR, which is the only
+basis for calling something flaky); no merge conflicts.
 
-**Compute PR size for Step 2's classification excluding known noise** —
-lockfiles, `.jules/*.md` journals, and generated artifacts inflate a raw
-`gh pr diff | wc -l` by orders of magnitude and will wrongly push a
-genuinely tiny change into needs-review, or worse, mask how large the
-*real* change actually is once they're stripped. AiAuto #5 read as 9,162
-lines raw; 193 lines once the noise above was removed. Always diff/count
-with those paths excluded (`git diff ... -- . ':!pnpm-lock.yaml'
-':!package-lock.json' ':!.jules' ':!playwright-report' ':!test-results'
-':!*.log'`) before applying the ≤150-lines/≤5-files heuristic.
+**Deny-list, always routes to full review regardless of size:**
+`supabase/migrations/**`; any path containing `auth`, `rate-limit`,
+`security`, `payment`, `webhook`, or `admin`; `.github/workflows/**`; any
+dependency version bump or lockfile change beyond the cleanup case; any
+`**/api/**` file whose diff touches an auth check, permission check, or
+input-validation boundary.
 
-**Fetch `origin/main` fresh before computing any merge-base or diff** in
-a worktree — a worktree created from a repo whose local `origin/main` ref
-is stale will compute the wrong merge-base and review the wrong diff
-(extra unrelated files, or a version of the PR's own changes that doesn't
-match what's actually on the remote branch). AiAuto #5 hit this: a stale
-local main showed 20 changed files where GitHub's own count was 10. Run
-`git fetch origin main <pr-branch>` before any `git merge-base`/`git
-diff` command, every time, not just when something looks off.
+**A brand-new dependency always escalates**, even with a clean review. A
+version bump is maintenance; a new dependency is a standing decision about
+supply-chain surface and maintenance burden. That is Kasper's call.
 
-**Never create a worktree from a bare local branch name — always reset it
-from the freshly-fetched remote ref, and record the exact SHA you
-reviewed.** This skill runs headless, often as a fresh session per
-invocation (a same-day "second opinion" re-run is a fresh process with no
-memory of the last one). If the bot pushes a new commit to a PR branch
-between two runs, and a run creates its worktree with plain `git worktree
-add <path> <branch>`, git will happily reuse a stale local branch ref of
-that name from a previous run instead of the branch's current tip —
-producing a review of an old commit that gets reported as current fact.
-(This happened for real: Vibetrends.dk #60 was reviewed against an early
-commit that still had an in-memory rate limiter; the bot's own next
-commit on the same branch had already fixed it to use `checkRateLimit()`,
-but the report said the fix was "missing" and needed Kasper's attention —
-because the review never looked at the branch's actual current HEAD.)
+Even for tiny/safe, read every hunk and the full enclosing function, and
+apply the skeptical lens. Small and correct is not the same as warranted.
 
-Fix: after `git fetch origin main <pr-branch>`, always create/reset the
-worktree branch directly from the remote-tracking ref, never from a bare
-branch name:
+For full review, work in the worktree and invoke the `code-review` skill at
+medium effort, then:
 
-```bash
-git worktree add <workspace>/.worktrees/<name> -B <local-branch-name> origin/<pr-branch>
-```
+- **Bloat** (complexity unjustified at this project's scale, or justified
+  only by a bot-authored claim): **reject**, whatever code-review found.
+- **Sketchy but not clearly bloat** (clean review, but touches a
+  foundational module, or the value tradeoff is genuinely close):
+  **escalate**, never auto-merge.
+- **Zero surviving findings and proportionate**: merge.
+- **All findings CONFIRMED and none deny-listed**: fix them mirroring the
+  repo's conventions, add a regression test per fix, run typecheck plus the
+  affected tests, commit, push, then re-run code-review **once**. Clean
+  means merge. Still dirty means stop, leave the fix pushed, report only.
+  Do not loop.
+- **Any finding only PLAUSIBLE, or touching a deny-listed concern**: never
+  auto-fix-and-merge. Post findings and stop.
+- **Circuit breaker**: if typecheck, lint, or tests fail after a fix,
+  abort, discard the local fix commit, report what broke.
 
-The `-B` force-resets `<local-branch-name>` to match `origin/<pr-branch>`
-exactly, even if a stale local branch of that name exists from an earlier
-run. Immediately after, run `git rev-parse origin/<pr-branch>` and record
-the short SHA — this is the **reviewed SHA** for this PR, and every
-finding in Step 4 about this PR must cite it (see Step 4's language
-contract below). Right before posting any comment or taking any merge/
-close action on a PR, re-run `git ls-remote origin <pr-branch>` and
-confirm the SHA still matches the reviewed SHA — if it doesn't (the bot
-pushed again mid-review), the review is stale: re-fetch and redo the
-review for that PR rather than acting on outdated findings.
+Always `git worktree remove --force` when done. Note it does not delete the
+local branch, which is the residue behind the staleness bug. Periodically
+`git branch -D` the leftovers for closed PRs.
 
-**Volume governor** — after the checks above, count how many bot PRs are
-left across all 3 repos combined. This routine has no mechanism to notice
-"the bot had an unusually active/erratic day" other than counting — an
-unattended pipeline that just grinds through however many PRs show up,
-with no sense of "this is a lot," is exactly the derailing risk automation
-introduces. If the combined count exceeds **8 in a single run**, or any
-one repo alone has more than **5**, don't process them all normally:
+## Step 4: reporting
 
-- Step 1's cleanup (dedup/staleness/lockfile/artifacts) still runs on
-  everything — it's mechanical and safe regardless of volume, and a
-  sandbox test run (2026-07-12, 9 PRs in one repo) confirmed it resolves
-  real PRs (duplicates, superseded, cleanups) before the cap ever matters.
-- The cap applies to the **merge action specifically**, not to whether a
-  PR gets looked at. A PR that Step 1 already resolves (duplicate,
-  superseded) or that the deny-list/skeptical lens already rejects
-  (bloat) doesn't consume a merge slot — those are "no" regardless of
-  volume, not "capped." Reject-as-bloat and close-as-duplicate/superseded
-  keep working normally at any volume.
-- For PRs still standing after that, cap **actual merges at 3 per repo**
-  this run. Fill those 3 slots with Step 2's tiny/safe candidates before
-  Step 3's needs-review candidates — a tiny/safe PR takes a light diff
-  read to clear, a needs-review PR takes a full code-review worktree
-  cycle, and spending that cycle on a PR that's going to be escalated
-  regardless of what it finds (because the cap is already spent) is pure
-  waste. Once the merge cap is spent, don't run Step 3's full code-review
-  pipeline on the remaining needs-review PRs either — do a lighter read
-  (like Step 2's, diff plus the enclosing function, not the 8-agent
-  fan-out) so the escalate comment is still informed, and say so: "capped
-  this run, not given the full review pass."
-- Auto-escalate everything past the cap ("high PR volume this run —
-  capped at 3 automatic merges for koalafilm.dk, N PRs left for your
-  review, full review not run on M of them due to the cap" in Step 4),
-  and say so prominently in the summary. A sudden spike is itself a
-  signal worth Kasper's attention, independent of whether each individual
-  PR looks fine.
+**Language contract.** Every finding about what a PR does or does not do
+must cite the reviewed SHA: "as of `a1b2c3d`, this branch builds its own
+in-memory rate limiter", never a bare "this PR builds...". If you cannot
+cite the SHA you verified against, you have not verified it.
 
-## Step 2 — Classify remaining bot PRs
+**Per-PR comment** on everything touched, saying what was done and why.
+For a closed submission, name the criterion and the evidence. For an
+escalated submission, give Kasper the four verification points from Step 1
+so merging is a one-click decision.
 
-A PR is **tiny/safe** only if ALL of:
-
-- Passes the main-drift silent-deletion check above — no symbol main
-  added since the fork point is missing from the simulated merge result.
-  This gates tiny/safe regardless of how small or clean the diff itself
-  looks; a 5-line PR that silently deletes a security control on merge is
-  not safe.
-- Diff touches nothing on the deny-list below.
-- Net diff ≤ ~150 changed lines and ≤ 5 files (a triage heuristic, not
-  proof of safety by itself — still read the diff, see below).
-- CI is green, OR the only failing check is a test that ALSO currently
-  fails **identically** (same test name/locator, visible in the failure
-  log) on another open PR in the same repo that doesn't touch related
-  code. That cross-check is the only basis for calling something "known
-  flaky" — one red run alone is not enough, go find the second data point
-  or treat it as real.
-- No merge conflicts against the base branch (`gh pr view <n> --json
-  mergeable,mergeStateStatus`).
-
-**Deny-list — always routes to Step 3 (needs-review) regardless of size:**
-- `supabase/migrations/**`
-- any path/filename containing `auth`, `rate-limit`, `security`, `payment`,
-  `webhook`, or `admin`
-- `.github/workflows/**`, any `package.json` dependency version bump, any
-  lockfile change beyond the Step 1 cleanup case
-- any `**/api/**` file where the diff touches an auth check, permission
-  check, or input-validation boundary — grep the diff for `auth`,
-  `permission`, `RLS`, `validate`, `sanitize` as a fast pre-filter, then
-  read the actual hunk before deciding
-
-**A brand-new dependency (a `package.json` `dependencies`/
-`devDependencies` key that didn't exist before, not just a version bump
-on an existing one) always routes to Step 3's **escalate** outcome, even
-if code-review finds nothing wrong with how it's used.** A version bump
-is routine maintenance; a new dependency is a standing decision about
-what this project is now willing to depend on — supply-chain surface,
-bundle size, and a maintenance commitment that outlives the PR that added
-it. That's Kasper's call, not something to wave through because the
-import compiles and tests pass.
-
-**Even for tiny/safe candidates, read the diff before merging.** This is a
-lighter pass than Step 3's full code-review — no multi-agent fan-out — just
-what worked tonight: read every hunk, Read the full enclosing function (not
-just the diff context) for anything non-trivial, confirm the change does
-what the title claims, and check it isn't reintroducing something already
-fixed elsewhere in the repo's history. If anything reads oddly, downgrade
-to Step 3 instead of merging on a hunch.
-
-**Apply the skeptical review lens here too, before merging on "it's small
-and correct" alone.** Small and correct is not the same as warranted. If
-the diff adds a new cache/memoization/abstraction whose only justification
-is a bot-authored performance claim, or grows the codebase's surface
-(new files, new dependency, new pattern) without a correspondingly clear
-improvement to correctness or user-visible behavior — that's **reject**,
-not merge, even at 20 lines:
-`gh pr close <n> --comment "Closing — adds <specific complexity> whose
-justification (<the bot's claim>) doesn't hold up for this project's
-actual scale/CLAUDE.md context. <one-line specific reason>." --delete-branch`
-
-If the change is small, correct, and the complexity is genuinely
-proportionate to a real problem (e.g. fixing a real bug, a real
-user-visible perf issue, a real security gap) — that's a normal merge.
-If you're genuinely unsure which side of that line it's on, don't guess:
-route it to Step 3 and let the fuller review (including the escalation
-option there) sort it out.
-
-If it survives the deny-list, size check, CI check, the diff read, and the
-skeptical lens: `gh pr merge <n> -R <repo> --merge --delete-branch`. If CI
-is red only on the corroborated-flaky test, add `--admin` to bypass the
-branch-protection gate for that one check, and say so explicitly in the PR
-comment (Step 4).
-
-## Step 3 — Needs-review PRs
-
-The main-drift silent-deletion check above must already be clear (or its
-fix-commit already applied and verified) before any outcome below is
-reached — a PR that fails that check is never "zero findings, merge
-directly" regardless of what code-review finds in this step.
-
-Check out the PR branch in an isolated git worktree — `git worktree add
-<workspace>/.worktrees/<name> <branch>` in the target repo, NOT the repo's
-own local checkout under `projects/`, and NOT `EnterWorktree` (that tool
-creates worktrees relative to whatever repo the session's own cwd is in,
-which in this multi-repo workspace is the Cowork root, not the nested
-project repo — it will silently worktree the wrong repo). Running plain
-`git checkout -b <branch>` directly in `projects/<repo>` switches Kasper's
-own local checkout to that branch — happened once already, caught
-immediately because nothing was lost (already-pushed commits), but it's
-exactly the kind of thing an unattended run has no one around to catch.
-Always `git worktree add`, always under `<workspace>/.worktrees/`, always
-`git worktree remove --force` when done (or `--force
---discard-changes` isn't needed if the branch's own work was already
-pushed).
-
-Invoke the `code-review` skill at medium effort against the PR's diff
-(same 8-angle finder + 1-vote verify pipeline used on Vibetrends #54). Also
-apply the skeptical review lens from above as you read the diff — the
-code-review skill hunts for bugs and cleanup opportunities, it does not by
-itself ask "is this complexity warranted for what this project is." That
-judgment is yours to make here, on top of whatever the code-review pass
-finds.
-
-- **The change is bloat**: adds complexity (new cache/abstraction/
-  dependency/pattern) whose justification doesn't hold up against the
-  project's actual scale, or whose only "proof" is a bot-authored
-  claim/unfalsifiable benchmark, or expands the codebase's surface without
-  a clear correctness/UX payoff → **reject**, regardless of what
-  code-review finds. Close with a specific, concrete reason (name the
-  complexity, name why it doesn't pay for itself here):
-  `gh pr close <n> --comment "..." --delete-branch`. This can apply even
-  when the code itself has zero bugs — "correct" and "worth merging" are
-  different questions.
-- **The change is sketchy but not clearly bloat**: passes code-review
-  (zero CONFIRMED findings) and isn't obviously unwarranted, but something
-  still gives pause — it touches a shared/foundational module in a way
-  future PRs will build on, it expands scope beyond what the title/fix
-  claims, or the complexity/value tradeoff is genuinely close and you're
-  not confident which way it should go even after the lens above →
-  **escalate**. Never auto-merge. Comment on the PR naming the specific
-  tension (what's good about it, what gives pause — be concrete, not
-  "this seems risky"), leave it open, and flag it prominently in Step 4's
-  summary under its own heading, not buried in the general list. This is
-  the tier for "tests pass but Kasper should look at this himself before
-  it ships" — distinct from needs-review's other outcomes, which the
-  routine resolves on its own.
-- **Zero findings survive verification, and the change is proportionate**
-  (real bug fix, real user-visible perf/security fix, complexity matches
-  the problem) → merge directly.
-- **Findings survive, all CONFIRMED, none touch a deny-listed concern**
-  (auth/migrations/payment/rate-limit/security/admin/webhook, same list as
-  Step 2) → fix them: mirror the existing code's own conventions, add or
-  extend a regression test for each fix, run typecheck + the affected test
-  files locally in the worktree. If that all passes, commit, push to the
-  PR branch, then **re-run the same code-review pass once more** against
-  the updated diff.
-  - Comes back clean → merge.
-  - Still has surviving findings → stop. Do not loop. Fall back to
-    report-only for this PR this run (Step 4), leaving the fix commit
-    pushed (it's still an improvement) but the PR unmerged.
-- **Any surviving finding is only PLAUSIBLE (not CONFIRMED), or touches a
-  deny-listed concern even if it looks fixable** → never auto-fix-and-merge.
-  Post the findings as a PR comment and stop. A routine running unattended
-  at 4am does not get to make the auth/migrations/payment call Kasper made
-  out loud tonight — that always waits for him.
-- **Circuit breaker**: if typecheck, lint, or the affected tests fail after
-  applying a fix, abort — discard the local fix commit (don't push a
-  broken one), and fall back to report-only with a note explaining what
-  broke.
-
-Always `ExitWorktree` when done with a PR, whether merged or not. Note
-`git worktree remove` deletes the worktree directory but does **not**
-delete the local branch it was checked out from — that local branch ref
-persists in the shared clone and is exactly the residue that caused the
-staleness bug above. It's harmless as long as every future run sources
-fresh from `origin/<pr-branch>` rather than reusing a branch by name, but
-it does accumulate. Periodically (e.g. monthly, or whenever a run
-notices several), delete merged/closed PRs' leftover local branches:
-`git branch -D <name>` for branches whose PR is no longer open.
-
-## Step 4 — Reporting
-
-**Language contract — no finding is a claim about "this PR," it's a claim
-about a specific commit.** Every finding that describes what a PR does or
-doesn't do (contains a bug, is missing a fix, uses pattern X) must cite
-the reviewed SHA recorded when its worktree was created (see the
-fetch-fresh rule above): "as of `<short-sha>`, this branch builds its own
-in-memory rate limiter" — not a bare "this PR builds its own in-memory
-rate limiter." This is what makes a finding falsifiable and re-checkable
-in a follow-up session, and it's what would have caught the Vibetrends.dk
-#60 staleness bug immediately (the cited SHA would have visibly predated
-the bot's fix commit). Never write "left for you" or any other
-present-tense claim about a PR's state without a SHA attached — if you
-can't cite the SHA you verified against, you haven't actually verified it
-against the PR's current state, so re-fetch and check before reporting.
-
-**Per-PR comment** — on every bot PR touched this run (merged, closed,
-fix-pushed, or left with findings), comment with what was done and why:
-- Merged: "Merged — [tiny/safe: diff read clean, CI green] or [code-review:
-  zero findings survived / N findings fixed and re-reviewed clean]."
-- Closed as duplicate/superseded: name the PR/commit it lost to.
-- Closed as bloat: name the specific complexity added and why it doesn't
-  pay for itself for this project (cite the CLAUDE.md context, not a
-  vague "seems unnecessary").
-- Escalated: name the specific tension — what's good about it, what gives
-  pause. Kasper is the audience for this comment, not a log entry.
-- Left open with findings: list them (file, line, one-line summary) so
-  Kasper can act without re-deriving them.
-- Fix pushed but not merged: what was fixed, why it's still waiting.
-
-**Cross-repo summary** — append a dated section to
-`docs/reports/pr-review-log.md` (create `docs/reports/` if it doesn't
-exist) in the Claude Cowork workspace root. Give escalated PRs their own
-heading so they can't be missed by skimming past a long "merged" list:
+**Cross-repo summary**: append a dated section to
+`docs/reports/pr-review-log.md` (on the VPS: `/home/administrator/docs/reports/`).
+Report per class, not as one undifferentiated list:
 
 ```markdown
-## 2026-07-13
+## 2026-08-31
 
 ### Needs your call
-- Vibetrends.dk #61 — adds a Redis-backed session cache. Tests pass, no
-  bugs found, but it's a new infra dependency for a project with no
-  existing cache layer — your call whether that's worth taking on.
+- #161 Submission: dk-techblog. Source verified, description_da is a real
+  translation, nothing equivalent live. Merge to approve.
 
-### Everything else
-- Koalafilm: 1 bot PR seen, #8 merged (tiny/safe).
-- Vibetrends.dk: 2 bot PRs seen (#61 above, #59 closed as duplicate).
-- AiAuto: 1 bot PR seen, #12 closed as bloat (memoized a pure function
-  called once per page load — no realistic scale where this pays for
-  itself; benchmark test only console.logged a number, no assertion).
+### Submissions
+- 9 open at start, 5 closed (3 duplicate resubmissions of bot-pr-review,
+  1 slug-suffix collision, 1 useful-only-to-Kasper), 1 escalated above,
+  3 still queued.
+
+### Hot ranking
+- 0 open. (W35 duplicate pattern: third consecutive week, worth a
+  concurrency group on scan-hot-skills.yml.)
+
+### Coding bot
+- 0 open. Dormant since late July.
+
+### Kasper's own
+- #167, #166 listed, untouched.
+
+### Health
 - Circuit breaker trips: none.
-- Drift watch: Koalafilm has now had 3 bot PRs in 2 weeks each adding a
-  new caching layer (#6 db reads, #8 image URLs, this run's #12 rejected)
-  — worth a look at whether the bot's default posture needs steering away
-  from "cache everything" for this repo specifically.
+- Drift watch: nothing new.
 ```
 
-Omit the "Needs your call" heading entirely on runs with nothing escalated
-— don't print an empty section. Keep entries terse — this is a scan-the-
-tail log, not a report. If a run finds nothing to do in a repo, still note
-"0 bot PRs" rather than omitting the repo, so a gap doesn't read as "the
-routine didn't run."
+Never report "nothing to do" without listing the open PR count by class.
+A zero that is not broken down is exactly how the submission backlog went
+unnoticed for weeks. If a class has 0 open PRs, print the 0.
+
+## Parked: the other two repos
+
+Dropped from scope 2026-08-30, restore by re-adding a table row in Step 0
+and re-reading this section:
+
+- **koalafilm.dk** (`projects/koalafilm`, `Landsvig1/Koalafilm`), npm.
+  Reference case for the fake benchmark: PR #8, merged 2026-07-12,
+  `console.log`ged "137x faster!" with no assertion and a comment claiming
+  the lack of assertion was deliberate. Had a run of caching PRs (#6 db
+  reads, #8 image URLs) worth watching for drift.
+- **aiauto.dk** (`projects/AiAuto`, `Landsvig1/AiAuto`), **pnpm**, so the
+  lockfile rule inverts there. PR #5 (2026-07-12) regenerated
+  `pnpm-lock.yaml` dropping hundreds of transitive entries with
+  `package.json` untouched; PR #4 committed a 24k-line
+  `playwright-report/index.html` that swamped a real 14-line diff.
+
+Both were on `⚡ Bolt:`/`🛡️ Sentinel:` PRs with no activity since late July.
