@@ -5,7 +5,7 @@
 
 ## Overview
 
-Guide and operational workflows for maintaining the VibeTrends.dk platform, Next.js architecture, and GitHub-backend database.
+Guide and operational workflows for maintaining the VibeTrends.dk platform: Next.js 16 App Router, Supabase (Postgres + Auth + Storage), and the submission review gate.
 
 ## Key Capabilities
 
@@ -22,9 +22,11 @@ Activate this skill in your agent prompt using any of the following triggers:
 
 ## Prerequisites & Environment Variables
 
-Ensure the following environment variables are configured in your `.env` or system environment:
+Ensure the following environment variables are configured in `.env.local` (see the project's `AGENTS.md`):
 
-- `GITHUB_TOKEN`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `DATABASE_URL` (migrations, via `scripts/apply-migration.mjs`)
 
 > **Security Note:** Never commit actual API keys or secret tokens to git repositories. Always load credentials from environment variables.
 
