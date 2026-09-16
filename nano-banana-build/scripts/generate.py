@@ -19,7 +19,7 @@ def get_client() -> genai.Client:
     """Get authenticated Gemini client, loading .env if needed."""
     if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
         # Attempt to load nearest .env
-        for path in (Path.cwd(), Path.home() / ".claude", Path.home()):
+        for path in (Path.cwd(), Path(__file__).parents[4], Path.home() / ".claude", Path.home()):
             env_path = path / ".env"
             if env_path.exists():
                 load_dotenv(env_path)
@@ -72,7 +72,15 @@ def main():
     }
     
     if args.grounded:
-        config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+        config_kwargs["tools"] = [
+            types.Tool(
+                google_search=types.GoogleSearch(
+                    search_types=types.SearchTypes(
+                        web_search=types.WebSearch()
+                    )
+                )
+            )
+        ]
         
     config = types.GenerateContentConfig(**config_kwargs)
     
