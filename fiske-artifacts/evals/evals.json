@@ -1,0 +1,35 @@
+{
+  "skill": "fiske-artifacts",
+  "version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "eval-fiske-01",
+      "prompt": "Lav en interaktiv side-om-side lovkonflikt inspektor for Fiskeristyrelsen der sammenligner EU 1224/2009 art 14 mod BEK 1421 § 8",
+      "expected_output_files": [
+        "/Users/kasperlandsvig/Documents/Claude Cowork/agy outputs/HTML_Artifacts/fiskerikontrol-lovkonflikt-inspektor.html"
+      ],
+      "assertions": [
+        {
+          "type": "file_exists",
+          "target": "agy outputs/HTML_Artifacts/fiskerikontrol-lovkonflikt-inspektor.html"
+        },
+        {
+          "type": "script_exit_zero",
+          "command": "python3 /Users/kasperlandsvig/.claude/skills/fiske-artifacts/scripts/lint-artifact.py 'agy outputs/HTML_Artifacts/fiskerikontrol-lovkonflikt-inspektor.html'"
+        },
+        {
+          "type": "pattern_match",
+          "pattern": "Miljøministeriet"
+        },
+        {
+          "type": "pattern_match",
+          "pattern": "Fiskeristyrelsen"
+        },
+        {
+          "type": "pattern_match",
+          "pattern": "navigator.clipboard.writeText"
+        }
+      ]
+    }
+  ]
+}
