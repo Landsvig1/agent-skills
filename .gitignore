@@ -37,3 +37,7 @@ tmp/
 
 # Workspace build / eval artifacts from skill-creator
 *-workspace/
+
+# Local backups / snapshots
+*_backup_*/
+*.bak-*
