@@ -1,0 +1,23 @@
+{
+  "skill_name": "gitlab-backend",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Build a Next.js waitlist form that saves user submissions to our self-hosted GitLab instance under `data/waitlist/[id].json` without setting up Postgres.",
+      "expected_output": "A Server Action using @gitbeaker/rest or GitLab Commits API with GITLAB_HOST, GITLAB_PROJECT_ID, and a Project Access Token to commit discrete JSON files.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Implement a webhook endpoint in Next.js to handle GitLab push events and revalidate cached data with Next.js revalidateTag.",
+      "expected_output": "An app/api/webhook/gitlab/route.ts route checking X-Gitlab-Token against GITLAB_WEBHOOK_SECRET and calling revalidateTag('gitlab-data') on Push Hook events.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Set up a visual CMS for my Next.js marketing site backed by a private GitLab repository for blog posts.",
+      "expected_output": "Decap CMS or Sveltia CMS configured with the gitlab backend, OAuth/auth_type, and collection mapping in public/admin/config.yml.",
+      "files": []
+    }
+  ]
+}
